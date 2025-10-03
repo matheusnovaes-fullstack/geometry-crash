@@ -88,7 +88,6 @@
       const r = canvas.getBoundingClientRect();
       let w = Math.max(1, Math.round(r.width));
       let h = Math.max(1, Math.round(r.height));
-      // fallback se container estiver colapsado
       if (w < 2 || h < 2) { w = 640; h = 360; dpr = 1; }
       canvas.width = Math.round(w * dpr);
       canvas.height = Math.round(h * dpr);
@@ -100,19 +99,38 @@
     // Mundo
     let groundY = H - 40;
 
+    // Estrelas em 3 camadas
+    const starLayers = [
+      { n: 18, speed: 0.08, twinkle: 0.015, col: 'rgba(180,255,255,', arr: [] },
+      { n: 22, speed: 0.18, twinkle: 0.025, col: 'rgba(200,255,255,', arr: [] },
+      { n: 26, speed: 0.30, twinkle: 0.035, col: 'rgba(255,255,220,', arr: [] }
+    ];
+    function seedStars(){
+      for(const L of starLayers){
+        L.arr = Array.from({length: L.n}, ()=>({
+          x: Math.random()*W,
+          y: Math.random()*H*0.75,
+          r: Math.random()*1.3 + 0.35,
+          p: Math.random()*Math.PI*2
+        }));
+      }
+    }
+    seedStars();
+
     window.addEventListener('resize', ()=>{
       const prev = { score, record, speed };
       ({ W, H } = setupDPI());
       groundY = H - 40;
       player.y = Math.min(player.y, groundY - player.h);
       score = prev.score; record = prev.record; speed = prev.speed;
+      seedStars();
     });
 
     // Pontos
     const scoreEl = document.getElementById('score');
     const recordEl = document.getElementById('record');
 
-    // Áudio (somente morte/explosão; pulo/ponto removidos)
+    // Áudio (somente morte/explosão)
     let audioCtx = null, useWebAudio=false;
     let sfx = { die:null, boom:null };
     const SFX_URLS = {
@@ -164,9 +182,9 @@
     let running=true, jumpQueued=false;
     recordEl.textContent = record;
 
-    // Spawn timer em ms (robusto contra FPS variados)
+    // Spawn timer
     let lastSpawnTime = 0;
-    let spawnIntervalMs = 1200; // vai reduzindo com score
+    let spawnIntervalMs = 1200;
     function scheduleSpawn(now){
       const target = Math.max(450, 1200 - score*20);
       spawnIntervalMs = target;
@@ -250,28 +268,69 @@
       }
     }
 
-    // Helpers visuais
-    function spikePath(o){ ctx.beginPath(); ctx.moveTo(o.x,o.y+o.h); ctx.lineTo(o.x+o.w/2,o.y); ctx.lineTo(o.x+o.w,o.y+o.h); ctx.closePath(); }
-    function neonRect(x,y,w,h){ ctx.fillStyle='rgba(24,255,216,0.12)'; ctx.fillRect(x,y,w,h); const grd=ctx.createLinearGradient(x,y,x+w,y+h); grd.addColorStop(0,'#00f0d1'); grd.addColorStop(1,'#00d0ff'); ctx.strokeStyle=grd; ctx.lineWidth=2; ctx.strokeRect(x+0.5,y+0.5,w-1,h-1); }
-
-    // Fundo
-    const stars = Array.from({length:28},()=>({x:Math.random()*W,y:Math.random()*H*.8,r:Math.random()*1.1+.3,tw:Math.random()*Math.PI*2}));
+    // Céu bonito: gradiente, aurora e estrelas em camadas
     function drawBackground(){
-      const g=ctx.createLinearGradient(0,0,0,H);
-      g.addColorStop(0,'#021017'); g.addColorStop(.5,'#051a24'); g.addColorStop(1,'#061f2c');
-      ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
-      for(const s of stars){
-        const y=s.y+Math.sin((frame*.01+s.tw)*.6)*.2, a=.5+.5*Math.sin(s.tw+frame*.03);
-        ctx.fillStyle=`rgba(160,255,255,${.12+.22*a})`; ctx.beginPath(); ctx.arc(s.x,y,s.r,0,Math.PI*2); ctx.fill();
-        s.x-=.2; if(s.x<-2){ s.x=W+2; s.y=Math.random()*H*.8; }
+      const sky = ctx.createLinearGradient(0,0,0,H);
+      sky.addColorStop(0.0,'#02101a');
+      sky.addColorStop(0.55,'#051b26');
+      sky.addColorStop(1.0,'#072233');
+      ctx.fillStyle = sky;
+      ctx.fillRect(0,0,W,H);
+
+      const horizon = ctx.createRadialGradient(W*0.5, H*0.92, 6, W*0.5, H*0.92, Math.max(W,H));
+      horizon.addColorStop(0,'rgba(0,240,209,0.10)');
+      horizon.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle = horizon;
+      ctx.fillRect(0,0,W,H);
+
+      const t = frame * 0.005;
+      const auroraY = H*0.28 + Math.sin(frame*0.01)*6;
+
+      const a1 = ctx.createLinearGradient(0, auroraY-40, 0, auroraY+60);
+      a1.addColorStop(0,'rgba(80,250,200,0)');
+      a1.addColorStop(0.45,'rgba(80,250,200,0.08)');
+      a1.addColorStop(0.85,'rgba(0,180,255,0.04)');
+      a1.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.translate(Math.sin(t)*30, 0);
+      ctx.fillStyle = a1;
+      ctx.fillRect(-40, auroraY-60, W+80, 140);
+      ctx.restore();
+
+      const auroraY2 = auroraY + 26;
+      const a2 = ctx.createLinearGradient(0, auroraY2-50, 0, auroraY2+70);
+      a2.addColorStop(0,'rgba(120,255,220,0)');
+      a2.addColorStop(0.5,'rgba(120,255,220,0.06)');
+      a2.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.translate(Math.cos(t*0.8)*20, 0);
+      ctx.fillStyle = a2;
+      ctx.fillRect(-40, auroraY2-70, W+80, 160);
+      ctx.restore();
+
+      for(const L of starLayers){
+        for(let i=0;i<L.arr.length;i++){
+          const s = L.arr[i];
+          s.x -= L.speed;
+          if(s.x < -2){ s.x = W+2; s.y = Math.random()*H*0.75; }
+          const tw = 0.35 + 0.65*Math.abs(Math.sin(s.p + frame*L.twinkle));
+          ctx.fillStyle = `${L.col}${0.12 + 0.28*tw})`;
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, s.r * (0.85 + 0.3*tw), 0, Math.PI*2);
+          ctx.fill();
+        }
       }
-      ctx.fillStyle='#0b1114'; ctx.fillRect(0,groundY,W,H-groundY);
-      ctx.globalAlpha=.08; ctx.fillStyle='#00f0d1'; for(let x=0;x<W;x+=24) ctx.fillRect(x,groundY,12,6); ctx.globalAlpha=1;
-      // Diagnóstico opcional: linha do chão
-      // ctx.fillStyle='rgba(255,0,0,.2)'; ctx.fillRect(0, groundY, W, 2);
+
+      ctx.fillStyle='#0b1114';
+      ctx.fillRect(0, groundY, W, H-groundY);
+      ctx.globalAlpha=.08; ctx.fillStyle='#00f0d1';
+      for(let x=0;x<W;x+=24) ctx.fillRect(x, groundY, 12, 6);
+      ctx.globalAlpha=1;
     }
 
-    // Buracos destacados
+    // Plataformas destacadas
     function drawHoles(){
       const pitJitter = Math.sin(frame*0.03)*0.6;
       for (const h of holes) {
@@ -311,17 +370,14 @@
       ctx.clearRect(0,0,W,H);
       drawBackground();
 
-      // mover entidades
       for(let i=platforms.length-1;i>=0;i--){ const p=platforms[i]; p.x-=speed; if(p.x+p.w<-50) platforms.splice(i,1); }
-      for(let i=obstacles.length-1;i>=0;i--){ const o=obstacles[i]; o.x-=speed; if(o.x+o.w<-40){ obstacles.splice(i,1); score++; scoreElUpdate(); /* som de ponto removido */ } }
+      for(let i=obstacles.length-1;i>=0;i--){ const o=obstacles[i]; o.x-=speed; if(o.x+o.w<-40){ obstacles.splice(i,1); score++; scoreElUpdate(); } }
       for(let i=holes.length-1;i>=0;i--){ const h=holes[i]; h.x-=speed; if(h.x+h.w<-60) holes.splice(i,1); }
 
       drawHoles();
 
-      // física
       player.dy += player.gravity; player.y += player.dy;
 
-      // suporte de chão vs buraco
       let overHole=false;
       for(const h of holes){ if(player.x+player.w>h.x && player.x<h.x+h.w){ overHole=true; break; } }
       if(!overHole && player.y + player.h >= groundY){
@@ -330,7 +386,6 @@
         player.grounded = false;
       }
 
-      // plataformas com colisão total
       for(const p of platforms){
         const grad=ctx.createLinearGradient(p.x,p.y,p.x+p.w,p.y); grad.addColorStop(0,'#2a2a8f'); grad.addColorStop(1,'#00d0ff');
         ctx.fillStyle=grad; ctx.fillRect(p.x,p.y,p.w,p.h);
@@ -348,10 +403,8 @@
         }
       }
 
-      // morte por queda
       if(player.y > H + 40){ spawnExplosion(player.x+player.w/2, H-10); playSfx('die', 0.9, 1.0); gameOver(); return; }
 
-      // obstáculos + colisão
       for(const o of obstacles){
         if(o.type==='block'){
           ctx.save(); const cx=o.x+o.w/2, cy=o.y+o.h/2; const angle=Math.sin((frame+7)/24)*0.09;
@@ -366,27 +419,23 @@
         }
       }
 
-      // player
       const rot = Math.max(-0.6, Math.min(0.6, player.dy * 0.03));
       ctx.save();
-      ctx.translate(player.x+player.w/2, player.y+player.h/2);
+      ctx.translate(player.x + player.w/2, player.y + player.h/2);
       ctx.rotate(rot);
       const rg=ctx.createRadialGradient(0,0,6,0,0,16); rg.addColorStop(0,'rgba(0,240,209,.18)'); rg.addColorStop(1,'rgba(0,240,209,0)');
       ctx.fillStyle=rg; ctx.beginPath(); ctx.arc(0,0,16,0,Math.PI*2); ctx.fill();
       const tri=ctx.createLinearGradient(-player.w/2,0,player.w/2,0); tri.addColorStop(0,'#00f0d1'); tri.addColorStop(1,'#00d0ff');
-      ctx.fillStyle=tri; ctx.beginPath(); ctx.moveTo(-player.w/2,player.h/2); ctx.lineTo(0,-player.h/2); ctx.lineTo(player.w/2,player.h/2); ctx.closePath(); ctx.fill();
+      ctx.fillStyle=tri; ctx.beginPath(); ctx.moveTo(-player.w/2, player.h/2); ctx.lineTo(0, -player.h/2); ctx.lineTo(player.w/2, player.h/2); ctx.closePath(); ctx.fill();
       ctx.strokeStyle='rgba(255,255,255,.25)'; ctx.lineWidth=1; ctx.stroke();
       ctx.restore();
 
       updateParticles(); drawParticles();
 
-      // spawn por timer
       scheduleSpawn(performance.now());
 
-      // velocidade
       if(score>30) speed=10; else if(score>15) speed=5.5; else speed=4+Math.floor(score/10)*0.5;
 
-      // HUD
       ctx.fillStyle='rgba(0,0,0,.12)'; ctx.fillRect(8,8,220,36);
       ctx.fillStyle='#00f0d1'; ctx.font='16px Inter, Arial'; ctx.fillText('Pontuação: '+score,18,32);
 
@@ -411,12 +460,11 @@
       frame=0; score=0; speed=4;
       player.y=groundY-player.h; player.dy=0; player.grounded=true;
       scoreElUpdate();
-      lastSpawnTime = performance.now() - spawnIntervalMs; // garante novo spawn rápido
+      lastSpawnTime = performance.now() - spawnIntervalMs;
     }
 
     function init(){
       running=true; score=0; scoreElUpdate();
-      // spawn inicial garantido
       spawn();
       lastSpawnTime = performance.now();
       requestAnimationFrame(update);
