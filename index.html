@@ -38,7 +38,7 @@
       border:2px solid rgba(0,240,209,.10);
       box-shadow:0 12px 48px rgba(0,0,0,.7), 0 0 24px rgba(0,240,209,.10), inset 0 0 0 1px rgba(255,255,255,.02);
       outline:none;
-      touch-action:none; /* evita rolagem/zoom e reduz jank */
+      touch-action:none;
     }
     #hud{ margin-top:10px; display:flex; gap:12px; align-items:center; justify-content:center; flex-wrap:wrap; }
     .scoreBox{
@@ -82,34 +82,44 @@
     // Canvas & DPI
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d', { alpha:true, desynchronized:true });
+
     function setupDPI(){
-      const dpr = window.devicePixelRatio || 1;
+      let dpr = window.devicePixelRatio || 1;
       const r = canvas.getBoundingClientRect();
-      canvas.width = Math.round(r.width * dpr);
-      canvas.height = Math.round(r.height * dpr);
+      let w = Math.max(1, Math.round(r.width));
+      let h = Math.max(1, Math.round(r.height));
+      // fallback se container estiver colapsado
+      if (w < 2 || h < 2) { w = 640; h = 360; dpr = 1; }
+      canvas.width = Math.round(w * dpr);
+      canvas.height = Math.round(h * dpr);
       ctx.setTransform(dpr,0,0,dpr,0,0);
-      return {W:r.width,H:r.height};
+      return {W:w,H:h};
     }
     let { W, H } = setupDPI();
-    window.addEventListener('resize', ()=>{ ({W,H}=setupDPI()); groundY = H - 40; player.y = Math.min(player.y, groundY - player.h); });
 
-    // Scores
+    // Mundo
+    let groundY = H - 40;
+
+    window.addEventListener('resize', ()=>{
+      const prev = { score, record, speed };
+      ({ W, H } = setupDPI());
+      groundY = H - 40;
+      player.y = Math.min(player.y, groundY - player.h);
+      score = prev.score; record = prev.record; speed = prev.speed;
+    });
+
+    // Pontos
     const scoreEl = document.getElementById('score');
     const recordEl = document.getElementById('record');
 
-    // Web Audio (baixa latência) + fallback
-    let audioCtx = null;
-    let sfx = { /* jump:null, point:null, */ die:null, boom:null }; // REMOVIDOS jump/point
-    let useWebAudio = false;
+    // Áudio (somente morte/explosão; pulo/ponto removidos)
+    let audioCtx = null, useWebAudio=false;
+    let sfx = { die:null, boom:null };
     const SFX_URLS = {
-      // jump:'https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg',
-      // point:'https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg',
       die:'https://actions.google.com/sounds/v1/cartoon/concussive_hit_guitar_boing.ogg',
       boom:'https://actions.google.com/sounds/v1/impacts/crash.ogg'
     };
     const htmlSfx = {
-      // jump: new Audio(SFX_URLS.jump),
-      // point:new Audio(SFX_URLS.point),
       die:  new Audio(SFX_URLS.die),
       boom: new Audio(SFX_URLS.boom)
     };
@@ -118,10 +128,8 @@
       try{
         audioCtx = new (window.AudioContext||window.webkitAudioContext)({ latencyHint:'interactive' });
         if(audioCtx.state==='suspended') await audioCtx.resume();
-        const entries = Object.entries(SFX_URLS);
-        for(const [key,url] of entries){
-          const res = await fetch(url);
-          const arr = await res.arrayBuffer();
+        for(const [key,url] of Object.entries(SFX_URLS)){
+          const res = await fetch(url); const arr = await res.arrayBuffer();
           sfx[key] = await audioCtx.decodeAudioData(arr);
         }
         useWebAudio = true;
@@ -129,18 +137,13 @@
     }
     function playSfx(name, gain=1.0, rate=1.0){
       if(useWebAudio && sfx[name] && audioCtx){
-        const src = audioCtx.createBufferSource();
-        src.buffer = sfx[name];
-        src.playbackRate.value = rate;
-        const g = audioCtx.createGain(); g.gain.value = gain;
-        src.connect(g).connect(audioCtx.destination);
-        src.start(0);
+        const src = audioCtx.createBufferSource(); src.buffer=sfx[name]; src.playbackRate.value=rate;
+        const g = audioCtx.createGain(); g.gain.value=gain;
+        src.connect(g).connect(audioCtx.destination); src.start(0);
       } else {
-        const a = htmlSfx[name]; if(!a) return;
-        a.currentTime = 0; a.play().catch(()=>{});
+        const a = htmlSfx[name]; if(!a) return; a.currentTime=0; a.play().catch(()=>{});
       }
     }
-
     const primeAudio = async ()=>{ await initAudioContextOnce(); };
 
     // UI / input
@@ -152,33 +155,41 @@
       if(e.code==='Space'){ e.preventDefault(); queueJump(); primeAudio(); }
     }, { passive:false });
 
-    // Mundo
-    let groundY = H - 40;
-    const GROUND_COLOR = '#0b1114';
-
     // Player
     const player = { x:80, y:groundY-24, w:24, h:24, dy:0, gravity:0.9, jumpForce:-12, grounded:true };
 
-    // Estado
+    // Estado geral
     const obstacles=[], platforms=[], holes=[], particles=[], flashes=[];
     let frame=0, speed=4, score=0, record=parseInt(localStorage.getItem('geometryCrashRecord')||'0',10)||0;
     let running=true, jumpQueued=false;
     recordEl.textContent = record;
 
-    // Temp AABB
-    const AABB_a = {x:0,y:0,w:0,h:0}, AABB_b = {x:0,y:0,w:0,h:0};
+    // Spawn timer em ms (robusto contra FPS variados)
+    let lastSpawnTime = 0;
+    let spawnIntervalMs = 1200; // vai reduzindo com score
+    function scheduleSpawn(now){
+      const target = Math.max(450, 1200 - score*20);
+      spawnIntervalMs = target;
+      if (now - lastSpawnTime >= spawnIntervalMs) {
+        spawn();
+        lastSpawnTime = now;
+      }
+    }
+
+    // AABB temp
+    const AABB_a={x:0,y:0,w:0,h:0}, AABB_b={x:0,y:0,w:0,h:0};
 
     // Fila de pulo
     function queueJump(){ jumpQueued = true; }
     function attemptJump(){
       if(player.grounded){
         player.dy = player.jumpForce; player.grounded=false;
-        // REMOVIDO: som de pulo
+        // sem som de pulo
         spawnParticles(player.x+player.w/2, player.y+player.h, '#00d0ff', 8, 2.2);
       }
     }
 
-    // Geração (buracos menores e espaçamento)
+    // Geração
     let lastHoleEndX = -9999;
     function spawn(){
       const r = Math.random();
@@ -217,8 +228,7 @@
     }
     function updateParticles(){
       for(let i=particles.length-1;i>=0;i--){
-        const p=particles[i];
-        p.x+=p.vx; p.y+=p.vy; p.vy+=0.15; p.life--;
+        const p=particles[i]; p.x+=p.vx; p.y+=p.vy; p.vy+=0.15; p.life--;
         if(p.life<=0) particles.splice(i,1);
       }
       for(let i=flashes.length-1;i>=0;i--){
@@ -240,7 +250,7 @@
       }
     }
 
-    // Helpers
+    // Helpers visuais
     function spikePath(o){ ctx.beginPath(); ctx.moveTo(o.x,o.y+o.h); ctx.lineTo(o.x+o.w/2,o.y); ctx.lineTo(o.x+o.w,o.y+o.h); ctx.closePath(); }
     function neonRect(x,y,w,h){ ctx.fillStyle='rgba(24,255,216,0.12)'; ctx.fillRect(x,y,w,h); const grd=ctx.createLinearGradient(x,y,x+w,y+h); grd.addColorStop(0,'#00f0d1'); grd.addColorStop(1,'#00d0ff'); ctx.strokeStyle=grd; ctx.lineWidth=2; ctx.strokeRect(x+0.5,y+0.5,w-1,h-1); }
 
@@ -250,13 +260,15 @@
       const g=ctx.createLinearGradient(0,0,0,H);
       g.addColorStop(0,'#021017'); g.addColorStop(.5,'#051a24'); g.addColorStop(1,'#061f2c');
       ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
-      for(let i=0;i<stars.length;i++){
-        const s=stars[i], y=s.y+Math.sin((frame*.01+i)*.6)*.2, a=.5+.5*Math.sin(s.tw+frame*.03);
+      for(const s of stars){
+        const y=s.y+Math.sin((frame*.01+s.tw)*.6)*.2, a=.5+.5*Math.sin(s.tw+frame*.03);
         ctx.fillStyle=`rgba(160,255,255,${.12+.22*a})`; ctx.beginPath(); ctx.arc(s.x,y,s.r,0,Math.PI*2); ctx.fill();
         s.x-=.2; if(s.x<-2){ s.x=W+2; s.y=Math.random()*H*.8; }
       }
       ctx.fillStyle='#0b1114'; ctx.fillRect(0,groundY,W,H-groundY);
       ctx.globalAlpha=.08; ctx.fillStyle='#00f0d1'; for(let x=0;x<W;x+=24) ctx.fillRect(x,groundY,12,6); ctx.globalAlpha=1;
+      // Diagnóstico opcional: linha do chão
+      // ctx.fillStyle='rgba(255,0,0,.2)'; ctx.fillRect(0, groundY, W, 2);
     }
 
     // Buracos destacados
@@ -264,14 +276,11 @@
       const pitJitter = Math.sin(frame*0.03)*0.6;
       for (const h of holes) {
         const top = groundY;
-
-        // aviso pulsante 16px antes
         const warnX = h.x - 16;
         const pulse = 0.6 + 0.4*Math.sin(frame*0.2);
         ctx.fillStyle = `rgba(41,255,165,${0.35*pulse})`;
         ctx.fillRect(warnX, top-10, 2, 10);
 
-        // interior visível (turquesa->azul)
         const rg = ctx.createRadialGradient(
           h.x + h.w/2, top + 18 + pitJitter, 6,
           h.x + h.w/2, top + 18 + pitJitter, Math.max(h.w, 100)
@@ -283,24 +292,19 @@
         ctx.fillStyle = rg;
         ctx.fillRect(h.x, top, h.w, H - top);
 
-        // rim light
         const rim = ctx.createLinearGradient(h.x, top - 1, h.x, top + 7);
-        rim.addColorStop(0, '#00f0d1');
-        rim.addColorStop(1, 'rgba(0,240,209,0)');
-        ctx.fillStyle = rim;
-        ctx.fillRect(h.x - 1, top - 2, h.w + 2, 9);
+        rim.addColorStop(0, '#00f0d1'); rim.addColorStop(1, 'rgba(0,240,209,0)');
+        ctx.fillStyle = rim; ctx.fillRect(h.x - 1, top - 2, h.w + 2, 9);
 
         ctx.strokeStyle = 'rgba(255,255,255,0.26)';
-        ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(h.x, top + 0.5); ctx.lineTo(h.x + h.w, top + 0.5); ctx.stroke();
+        ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(h.x, top + 0.5); ctx.lineTo(h.x + h.w, top + 0.5); ctx.stroke();
       }
     }
 
-    // Loop principal
+    // Loop
     function update(){
       if(!running) return;
 
-      // aplicar pulo no início do frame (sincronia com rAF)
       if(jumpQueued){ jumpQueued=false; attemptJump(); }
 
       frame++;
@@ -309,7 +313,7 @@
 
       // mover entidades
       for(let i=platforms.length-1;i>=0;i--){ const p=platforms[i]; p.x-=speed; if(p.x+p.w<-50) platforms.splice(i,1); }
-      for(let i=obstacles.length-1;i>=0;i--){ const o=obstacles[i]; o.x-=speed; if(o.x+o.w<-40){ obstacles.splice(i,1); score++; scoreElUpdate(); /* REMOVIDO som de ponto */ } }
+      for(let i=obstacles.length-1;i>=0;i--){ const o=obstacles[i]; o.x-=speed; if(o.x+o.w<-40){ obstacles.splice(i,1); score++; scoreElUpdate(); /* som de ponto removido */ } }
       for(let i=holes.length-1;i>=0;i--){ const h=holes[i]; h.x-=speed; if(h.x+h.w<-60) holes.splice(i,1); }
 
       drawHoles();
@@ -376,27 +380,47 @@
 
       updateParticles(); drawParticles();
 
+      // spawn por timer
+      scheduleSpawn(performance.now());
+
+      // velocidade
       if(score>30) speed=10; else if(score>15) speed=5.5; else speed=4+Math.floor(score/10)*0.5;
 
-      if(frame % Math.max(44, 96 - Math.floor(score/2)) === 0) spawn();
-
+      // HUD
       ctx.fillStyle='rgba(0,0,0,.12)'; ctx.fillRect(8,8,220,36);
       ctx.fillStyle='#00f0d1'; ctx.font='16px Inter, Arial'; ctx.fillText('Pontuação: '+score,18,32);
 
       requestAnimationFrame(update);
     }
 
-    function scoreElUpdate(){ scoreEl.textContent=String(score); if(score>record){ record=score; localStorage.setItem('geometryCrashRecord', String(record)); recordEl.textContent=String(record); } }
+    function scoreElUpdate(){
+      scoreEl.textContent=String(score);
+      if(score>record){
+        record=score; localStorage.setItem('geometryCrashRecord', String(record));
+        recordEl.textContent=String(record);
+      }
+    }
 
     function gameOver(){
       running=false;
       setTimeout(()=>{ const again=confirm('💥 Fim de jogo! Seu recorde é: '+record+'\n\nDeseja jogar novamente?'); if(again){ resetGame(); init(); } }, 160);
     }
+
     function resetGame(){
       obstacles.length=0; platforms.length=0; holes.length=0; particles.length=0; flashes.length=0;
-      frame=0; score=0; speed=4; player.y=groundY-player.h; player.dy=0; player.grounded=true; scoreElUpdate();
+      frame=0; score=0; speed=4;
+      player.y=groundY-player.h; player.dy=0; player.grounded=true;
+      scoreElUpdate();
+      lastSpawnTime = performance.now() - spawnIntervalMs; // garante novo spawn rápido
     }
-    function init(){ running=true; score=0; scoreElUpdate(); requestAnimationFrame(update); }
+
+    function init(){
+      running=true; score=0; scoreElUpdate();
+      // spawn inicial garantido
+      spawn();
+      lastSpawnTime = performance.now();
+      requestAnimationFrame(update);
+    }
 
     init();
   })();
