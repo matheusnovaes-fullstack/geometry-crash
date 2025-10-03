@@ -58,6 +58,7 @@
         0 0 24px rgba(0,240,209,0.10),
         inset 0 0 0 1px rgba(255,255,255,0.02);
       outline: none;
+      touch-action: none; /* evita scroll/zoom no toque, reduz jank */
     }
     #hud{
       margin-top:10px;
@@ -125,7 +126,6 @@
   </div>
 
   <!-- Sons -->
-  <!-- Troque para assets locais se desejar: assets/sounds/wood_plank_flicks.ogg etc. -->
   <audio id="sndJump" src="https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg" preload="auto"></audio>
   <audio id="sndPoint" src="https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg" preload="auto"></audio>
   <audio id="sndDie" src="https://actions.google.com/sounds/v1/cartoon/concussive_hit_guitar_boing.ogg" preload="auto"></audio>
@@ -182,7 +182,23 @@
     recordEl.textContent = record;
     let running = true;
 
-    // Input
+    // Input com fila sincronizada
+    let jumpQueued = false;
+    function queueJump(){ jumpQueued = true; }
+
+    document.addEventListener('keydown', e => {
+      if (e.code === 'Space') {
+        e.preventDefault();
+        queueJump();
+      }
+    }, { passive: false });
+
+    const onTap = () => { queueJump(); };
+
+    canvas.addEventListener('touchstart', onTap, { passive: true });
+    canvas.addEventListener('pointerdown', () => canvas.focus(), { passive: true });
+    jumpBtn.addEventListener('click', onTap);
+
     function attemptJump(){
       if(player.grounded){
         player.dy = player.jumpForce;
@@ -192,18 +208,8 @@
         spawnParticles(player.x+player.w/2, player.y+player.h, '#00d0ff', 6, 2);
       }
     }
-    document.addEventListener('keydown', e => {
-      if (e.code === 'Space') {
-        e.preventDefault();
-        attemptJump();
-      }
-    });
-    jumpBtn.addEventListener('click', attemptJump);
-    canvas.addEventListener('touchstart', (e)=>{ e.preventDefault(); attemptJump(); }, {passive:false});
-    canvas.addEventListener('pointerdown', ()=>canvas.focus());
-    canvas.addEventListener('keydown', (e)=>{ if(e.code==='Space'){ e.preventDefault(); attemptJump(); } });
 
-    // Spawn logic
+    // Spawn lógica
     function spawn(){
       const r = Math.random();
       if (r < 0.5) {
@@ -218,24 +224,14 @@
       } else if (r < 0.8) {
         const isDouble = Math.random() < 0.33;
         if(!isDouble){
-          obstacles.push({
-            type:'spike',
-            x: W + 10,
-            y: groundY - 20,
-            w: 22, h: 20
-          });
+          obstacles.push({ type:'spike', x: W + 10, y: groundY - 20, w: 22, h: 20 });
         } else {
           obstacles.push({ type:'spike', x: W + 10, y: groundY - 20, w: 16, h: 20 });
           obstacles.push({ type:'spike', x: W + 10 + 22, y: groundY - 20, w: 16, h: 20 });
         }
       } else {
         const py = groundY - 80 - Math.floor(Math.random()*80);
-        platforms.push({
-          x: W + 10,
-          y: py,
-          w: 80 + Math.floor(Math.random()*70),
-          h: 12
-        });
+        platforms.push({ x: W + 10, y: py, w: 80 + Math.floor(Math.random()*70), h: 12 });
       }
     }
 
@@ -327,6 +323,13 @@
     // Loop principal
     function update(){
       if(!running) return;
+
+      // aplica intenção de pulo no início do frame
+      if (jumpQueued) {
+        jumpQueued = false;
+        attemptJump();
+      }
+
       frame++;
       ctx.clearRect(0,0,W,H);
       drawBackground();
@@ -353,7 +356,6 @@
         ctx.fillStyle = grad;
         ctx.fillRect(p.x,p.y,p.w,p.h);
 
-        // AABB overlap
         const a = { x: player.x, y: player.y, w: player.w, h: player.h };
         const b = { x: p.x, y: p.y, w: p.w, h: p.h };
 
@@ -362,21 +364,17 @@
 
         if (overlapX > 0.5 && overlapY > 0.5) {
           if (overlapX < overlapY) {
-            // resolver lateral
             if (a.x + a.w / 2 < b.x + b.w / 2) {
               player.x -= overlapX;
             } else {
               player.x += overlapX;
             }
           } else {
-            // resolver vertical
             if (a.y + a.h / 2 < b.y + b.h / 2) {
-              // em cima
               player.y -= overlapY;
               player.dy = 0;
               player.grounded = true;
             } else {
-              // por baixo
               player.y += overlapY;
               if (player.dy < 0) player.dy = 0;
             }
@@ -410,7 +408,6 @@
           ctx.restore();
         }
 
-        // colisão com obstáculos
         if (
           player.x < o.x + o.w &&
           player.x + player.w > o.x &&
