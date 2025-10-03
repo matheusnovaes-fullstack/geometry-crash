@@ -12,23 +12,49 @@
       --accent-2:#00d0ff;
       --gold:#ffd166;
       --muted:#99a0a6;
-      --warn:#29ffa5; /* marcação de aviso */
+      --warn:#29ffa5;
     }
-    html,body{ height:100%; margin:0; font-family:Inter,"Segoe UI",Roboto,Arial,sans-serif; background:linear-gradient(180deg,var(--bg1),#071018 80%); color:#e6f7f2; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; }
+    html,body{
+      height:100%; margin:0;
+      font-family:Inter,"Segoe UI",Roboto,Arial,sans-serif;
+      background:linear-gradient(180deg,var(--bg1),#071018 80%);
+      color:#e6f7f2;
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
+    }
     .container{ max-width:720px; margin:18px auto; padding:18px; box-sizing:border-box; text-align:center; }
     h1{ margin:0 0 12px; font-size:20px; letter-spacing:.5px; }
-    .game-card{ background:linear-gradient(180deg,rgba(255,255,255,.02),rgba(0,0,0,.06)); border-radius:12px; padding:14px; box-shadow:0 6px 30px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.02); border:1px solid rgba(255,255,255,.03); display:flex; flex-direction:column; align-items:center; }
+    .game-card{
+      background:linear-gradient(180deg,rgba(255,255,255,.02),rgba(0,0,0,.06));
+      border-radius:12px; padding:14px;
+      box-shadow:0 6px 30px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.02);
+      border:1px solid rgba(255,255,255,.03);
+      display:flex; flex-direction:column; align-items:center;
+    }
     canvas{
       background:linear-gradient(180deg,#031219 0%, #071423 100%);
-      width:100%; max-width:640px; height:360px; border-radius:12px;
+      width:100%; max-width:640px; height:360px;
+      border-radius:12px;
       border:2px solid rgba(0,240,209,.10);
       box-shadow:0 12px 48px rgba(0,0,0,.7), 0 0 24px rgba(0,240,209,.10), inset 0 0 0 1px rgba(255,255,255,.02);
-      outline:none; touch-action:none;
+      outline:none;
+      touch-action:none; /* evita rolagem/zoom e reduz jank */
     }
     #hud{ margin-top:10px; display:flex; gap:12px; align-items:center; justify-content:center; flex-wrap:wrap; }
-    .scoreBox{ background:rgba(255,255,255,.06); backdrop-filter:blur(6px); padding:8px 12px; border-radius:10px; font-weight:700; color:var(--accent); border:1px solid rgba(255,255,255,.08); }
+    .scoreBox{
+      background:rgba(255,255,255,.06);
+      backdrop-filter:blur(6px);
+      padding:8px 12px; border-radius:10px; font-weight:700;
+      color:var(--accent); border:1px solid rgba(255,255,255,.08);
+    }
     .record{ color:var(--gold); }
-    #jumpBtn{ padding:10px 16px; border-radius:12px; background:linear-gradient(180deg,var(--accent),var(--accent-2)); border:none; color:#012; font-weight:800; cursor:pointer; box-shadow:0 8px 18px rgba(0,208,255,.18); transition:transform .06s ease, filter .12s ease; }
+    #jumpBtn{
+      padding:10px 16px; border-radius:12px;
+      background:linear-gradient(180deg,var(--accent),var(--accent-2));
+      border:none; color:#012; font-weight:800; cursor:pointer;
+      box-shadow:0 8px 18px rgba(0,208,255,.18);
+      transition:transform .06s ease, filter .12s ease;
+    }
     #jumpBtn:hover{ filter:brightness(1.05); }
     #jumpBtn:active{ transform:translateY(1px) scale(.99); }
     .controls{ margin-top:8px; font-size:13px; color:var(--muted); }
@@ -51,12 +77,6 @@
     </div>
   </div>
 
-  <!-- Sons -->
-  <audio id="sndJump" src="https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg" preload="auto"></audio>
-  <audio id="sndPoint" src="https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg" preload="auto"></audio>
-  <audio id="sndDie" src="https://actions.google.com/sounds/v1/cartoon/concussive_hit_guitar_boing.ogg" preload="auto"></audio>
-  <audio id="sndExplode" src="https://actions.google.com/sounds/v1/impacts/crash.ogg" preload="auto"></audio>
-
   <script>
   (function(){
     // Canvas & DPI
@@ -73,14 +93,64 @@
     let { W, H } = setupDPI();
     window.addEventListener('resize', ()=>{ ({W,H}=setupDPI()); groundY = H - 40; player.y = Math.min(player.y, groundY - player.h); });
 
-    // HUD / Áudio
-    const jumpBtn = document.getElementById('jumpBtn');
+    // Scores
     const scoreEl = document.getElementById('score');
     const recordEl = document.getElementById('record');
-    const sndJump = document.getElementById('sndJump');
-    const sndPoint = document.getElementById('sndPoint');
-    const sndDie = document.getElementById('sndDie');
-    const sndExplode = document.getElementById('sndExplode');
+
+    // Web Audio (baixa latência) + fallback
+    let audioCtx = null;
+    let sfx = { jump:null, point:null, die:null, boom:null };
+    let useWebAudio = false;
+    const SFX_URLS = {
+      jump:'https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg',
+      point:'https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg',
+      die:'https://actions.google.com/sounds/v1/cartoon/concussive_hit_guitar_boing.ogg',
+      boom:'https://actions.google.com/sounds/v1/impacts/crash.ogg'
+    };
+    const htmlSfx = {
+      jump: new Audio(SFX_URLS.jump),
+      point:new Audio(SFX_URLS.point),
+      die:  new Audio(SFX_URLS.die),
+      boom: new Audio(SFX_URLS.boom)
+    };
+    async function initAudioContextOnce(){
+      if(audioCtx) return;
+      try{
+        audioCtx = new (window.AudioContext||window.webkitAudioContext)({ latencyHint:'interactive' });
+        if(audioCtx.state==='suspended') await audioCtx.resume();
+        const entries = Object.entries(SFX_URLS);
+        for(const [key,url] of entries){
+          const res = await fetch(url);
+          const arr = await res.arrayBuffer();
+          sfx[key] = await audioCtx.decodeAudioData(arr);
+        }
+        useWebAudio = true;
+      }catch(e){ useWebAudio = false; }
+    }
+    function playSfx(name, gain=1.0, rate=1.0){
+      if(useWebAudio && sfx[name] && audioCtx){
+        const src = audioCtx.createBufferSource();
+        src.buffer = sfx[name];
+        src.playbackRate.value = rate;
+        const g = audioCtx.createGain(); g.gain.value = gain;
+        src.connect(g).connect(audioCtx.destination);
+        src.start(0);
+      } else {
+        const a = htmlSfx[name]; if(!a) return;
+        a.currentTime = 0; a.play().catch(()=>{});
+      }
+    }
+
+    const primeAudio = async ()=>{ await initAudioContextOnce(); };
+
+    // UI / input
+    const jumpBtn = document.getElementById('jumpBtn');
+    jumpBtn.addEventListener('click', ()=>{ queueJump(); primeAudio(); });
+    canvas.addEventListener('touchstart', ()=>{ queueJump(); primeAudio(); }, { passive:true });
+    canvas.addEventListener('pointerdown', ()=>{ canvas.focus(); primeAudio(); }, { passive:true });
+    document.addEventListener('keydown', e=>{
+      if(e.code==='Space'){ e.preventDefault(); queueJump(); primeAudio(); }
+    }, { passive:false });
 
     // Mundo
     let groundY = H - 40;
@@ -98,21 +168,17 @@
     // Temp AABB
     const AABB_a = {x:0,y:0,w:0,h:0}, AABB_b = {x:0,y:0,w:0,h:0};
 
-    // Input sincronizado
+    // Fila de pulo
     function queueJump(){ jumpQueued = true; }
-    document.addEventListener('keydown', e=>{ if(e.code==='Space'){ e.preventDefault(); queueJump(); } }, { passive:false });
-    canvas.addEventListener('touchstart', ()=>queueJump(), { passive:true });
-    canvas.addEventListener('pointerdown', ()=>canvas.focus(), { passive:true });
-    jumpBtn.addEventListener('click', ()=>queueJump());
     function attemptJump(){
       if(player.grounded){
         player.dy = player.jumpForce; player.grounded=false;
-        sndJump.currentTime=0; sndJump.play().catch(()=>{});
+        playSfx('jump', 0.9, 1.0);
         spawnParticles(player.x+player.w/2, player.y+player.h, '#00d0ff', 8, 2.2);
       }
     }
 
-    // Geração com buracos menores e espaçamento mínimo
+    // Geração (buracos menores e espaçamento)
     let lastHoleEndX = -9999;
     function spawn(){
       const r = Math.random();
@@ -126,20 +192,19 @@
         const py = groundY - 80 - Math.floor(Math.random()*80);
         platforms.push({ x:W+10, y:py, w:80+Math.floor(Math.random()*70), h:12 });
       } else {
-        const minW=36, maxW=72; // menor
+        const minW=36, maxW=72;
         const wHole = minW + Math.floor(Math.random()*(maxW-minW+1));
-        const minGap = 140; // espaçamento mínimo desde o fim do último buraco
+        const minGap = 140;
         const startX = Math.max(W+10, lastHoleEndX + minGap);
         holes.push({ x:startX, y:groundY, w:wHole, h:H-groundY });
         lastHoleEndX = startX + wHole;
       }
     }
 
-    // Partículas e explosão
+    // Partículas / explosão
     function spawnParticles(x,y,color,count=12,speed=3,spread=Math.PI*2){
       for(let i=0;i<count;i++){
-        const ang = Math.random()*spread;
-        const spd = speed*(0.5+Math.random());
+        const ang = Math.random()*spread, spd = speed*(0.5+Math.random());
         particles.push({ x, y, vx:Math.cos(ang)*spd, vy:Math.sin(ang)*spd, life:24+Math.random()*18, color });
       }
     }
@@ -148,7 +213,7 @@
       spawnParticles(x,y,'#00f0d1',16,3.2);
       spawnParticles(x,y,'#00d0ff',12,2.8);
       spawnParticles(x,y,'#ffffff',10,2.4);
-      sndExplode.currentTime=0; sndExplode.play().catch(()=>{});
+      playSfx('boom', 0.9, 1.0);
     }
     function updateParticles(){
       for(let i=particles.length-1;i>=0;i--){
@@ -167,8 +232,7 @@
         ctx.fillRect(p.x-1,p.y-1,2,2);
       }
       for(const f of flashes){
-        const alpha = f.life/12;
-        const rad = 60*(1-alpha)+20;
+        const alpha = f.life/12, rad = 60*(1-alpha)+20;
         const g = ctx.createRadialGradient(f.x,f.y,0, f.x,f.y,rad);
         g.addColorStop(0,`rgba(255,255,255,${0.35*alpha})`);
         g.addColorStop(1,'rgba(255,255,255,0)');
@@ -187,27 +251,27 @@
       g.addColorStop(0,'#021017'); g.addColorStop(.5,'#051a24'); g.addColorStop(1,'#061f2c');
       ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
       for(let i=0;i<stars.length;i++){
-        const s=stars[i]; const y=s.y+Math.sin((frame*.01+i)*.6)*.2; const a=.5+.5*Math.sin(s.tw+frame*.03);
+        const s=stars[i], y=s.y+Math.sin((frame*.01+i)*.6)*.2, a=.5+.5*Math.sin(s.tw+frame*.03);
         ctx.fillStyle=`rgba(160,255,255,${.12+.22*a})`; ctx.beginPath(); ctx.arc(s.x,y,s.r,0,Math.PI*2); ctx.fill();
         s.x-=.2; if(s.x<-2){ s.x=W+2; s.y=Math.random()*H*.8; }
       }
-      ctx.fillStyle=GROUND_COLOR; ctx.fillRect(0,groundY,W,H-groundY);
+      ctx.fillStyle='#0b1114'; ctx.fillRect(0,groundY,W,H-groundY);
       ctx.globalAlpha=.08; ctx.fillStyle='#00f0d1'; for(let x=0;x<W;x+=24) ctx.fillRect(x,groundY,12,6); ctx.globalAlpha=1;
     }
 
-    // Buracos destacados com aviso
+    // Buracos destacados
     function drawHoles(){
       const pitJitter = Math.sin(frame*0.03)*0.6;
       for (const h of holes) {
         const top = groundY;
 
-        // faixa de aviso 16px antes do buraco (pulsante)
+        // aviso pulsante 16px antes
         const warnX = h.x - 16;
         const pulse = 0.6 + 0.4*Math.sin(frame*0.2);
         ctx.fillStyle = `rgba(41,255,165,${0.35*pulse})`;
         ctx.fillRect(warnX, top-10, 2, 10);
 
-        // interior com gradiente visível (turquesa->azul)
+        // interior visível (turquesa->azul)
         const rg = ctx.createRadialGradient(
           h.x + h.w/2, top + 18 + pitJitter, 6,
           h.x + h.w/2, top + 18 + pitJitter, Math.max(h.w, 100)
@@ -219,7 +283,7 @@
         ctx.fillStyle = rg;
         ctx.fillRect(h.x, top, h.w, H - top);
 
-        // rim light (ciano) e linha clara
+        // rim light
         const rim = ctx.createLinearGradient(h.x, top - 1, h.x, top + 7);
         rim.addColorStop(0, '#00f0d1');
         rim.addColorStop(1, 'rgba(0,240,209,0)');
@@ -232,9 +296,11 @@
       }
     }
 
-    // Loop
+    // Loop principal
     function update(){
       if(!running) return;
+
+      // aplicar pulo no início do frame (sincronia com rAF)
       if(jumpQueued){ jumpQueued=false; attemptJump(); }
 
       frame++;
@@ -243,7 +309,7 @@
 
       // mover entidades
       for(let i=platforms.length-1;i>=0;i--){ const p=platforms[i]; p.x-=speed; if(p.x+p.w<-50) platforms.splice(i,1); }
-      for(let i=obstacles.length-1;i>=0;i--){ const o=obstacles[i]; o.x-=speed; if(o.x+o.w<-40){ obstacles.splice(i,1); score++; scoreElUpdate(); sndPoint.currentTime=0; sndPoint.play().catch(()=>{}); } }
+      for(let i=obstacles.length-1;i>=0;i--){ const o=obstacles[i]; o.x-=speed; if(o.x+o.w<-40){ obstacles.splice(i,1); score++; scoreElUpdate(); playSfx('point', 0.8, 1.0); } }
       for(let i=holes.length-1;i>=0;i--){ const h=holes[i]; h.x-=speed; if(h.x+h.w<-60) holes.splice(i,1); }
 
       drawHoles();
@@ -260,7 +326,7 @@
         player.grounded = false;
       }
 
-      // plataformas com colisão
+      // plataformas com colisão total
       for(const p of platforms){
         const grad=ctx.createLinearGradient(p.x,p.y,p.x+p.w,p.y); grad.addColorStop(0,'#2a2a8f'); grad.addColorStop(1,'#00d0ff');
         ctx.fillStyle=grad; ctx.fillRect(p.x,p.y,p.w,p.h);
@@ -279,7 +345,7 @@
       }
 
       // morte por queda
-      if(player.y > H + 40){ spawnExplosion(player.x+player.w/2, H-10); gameOver(); return; }
+      if(player.y > H + 40){ spawnExplosion(player.x+player.w/2, H-10); playSfx('die', 0.9, 1.0); gameOver(); return; }
 
       // obstáculos + colisão
       for(const o of obstacles){
@@ -292,7 +358,7 @@
           ctx.fillStyle=g; ctx.fill(); ctx.restore();
         }
         if (player.x < o.x+o.w && player.x+player.w > o.x && player.y < o.y+o.h && player.y+player.h > o.y){
-          spawnExplosion(player.x+player.w/2, player.y+player.h/2); gameOver(); return;
+          spawnExplosion(player.x+player.w/2, player.y+player.h/2); playSfx('die', 0.9, 1.0); gameOver(); return;
         }
       }
 
@@ -323,8 +389,8 @@
     function scoreElUpdate(){ scoreEl.textContent=String(score); if(score>record){ record=score; localStorage.setItem('geometryCrashRecord', String(record)); recordEl.textContent=String(record); } }
 
     function gameOver(){
-      running=false; sndDie.currentTime=0; sndDie.play().catch(()=>{});
-      setTimeout(()=>{ const again=confirm('💥 Fim de jogo! Seu recorde é: '+record+'\n\nDeseja jogar novamente?'); if(again){ resetGame(); init(); } }, 180);
+      running=false;
+      setTimeout(()=>{ const again=confirm('💥 Fim de jogo! Seu recorde é: '+record+'\n\nDeseja jogar novamente?'); if(again){ resetGame(); init(); } }, 160);
     }
     function resetGame(){
       obstacles.length=0; platforms.length=0; holes.length=0; particles.length=0; flashes.length=0;
