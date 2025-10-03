@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Geometry Crash</title>
   <link rel="icon" href="favicon.ico" />
   <style>
@@ -31,9 +31,14 @@
       border:1px solid rgba(255,255,255,.03);
       display:flex; flex-direction:column; align-items:center;
     }
+    /* Canvas com razão 16:9 estável e altura mínima para mobile */
     canvas{
       background:linear-gradient(180deg,#031219 0%, #071423 100%);
-      width:100%; max-width:640px; height:360px;
+      width:100%;
+      max-width:640px;
+      aspect-ratio: 16 / 9;   /* força 16:9 */
+      height:auto;
+      min-height: 320px;      /* garante área visível em iOS */
       border-radius:12px;
       border:2px solid rgba(0,240,209,.10);
       box-shadow:0 12px 48px rgba(0,0,0,.7), 0 0 24px rgba(0,240,209,.10), inset 0 0 0 1px rgba(255,255,255,.02);
@@ -58,7 +63,10 @@
     #jumpBtn:hover{ filter:brightness(1.05); }
     #jumpBtn:active{ transform:translateY(1px) scale(.99); }
     .controls{ margin-top:8px; font-size:13px; color:var(--muted); }
-    @media(max-width:520px){ canvas{ height:300px; } #jumpBtn{ padding:12px 18px; font-size:16px; } }
+    @media(max-width:520px){
+      /* mantém a proporção; min-height já segura a altura */
+      #jumpBtn{ padding:12px 18px; font-size:16px; }
+    }
   </style>
 </head>
 <body>
@@ -79,58 +87,63 @@
 
   <script>
   (function(){
-    // Canvas & DPI
+    // Canvas & DPI robusto
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d', { alpha:true, desynchronized:true });
 
-    function setupDPI(){
-      let dpr = window.devicePixelRatio || 1;
-      const r = canvas.getBoundingClientRect();
-      let w = Math.max(1, Math.round(r.width));
-      let h = Math.max(1, Math.round(r.height));
-      if (w < 2 || h < 2) { w = 640; h = 360; dpr = 1; }
-      canvas.width = Math.round(w * dpr);
-      canvas.height = Math.round(h * dpr);
-      ctx.setTransform(dpr,0,0,dpr,0,0);
-      return {W:w,H:h};
+    function getCssSize() {
+      // Usa clientWidth e a altura derivada do aspect-ratio; como fallback, usa boundingClientRect
+      const w = Math.max(1, Math.round(canvas.clientWidth || canvas.getBoundingClientRect().width || 640));
+      // 16:9 a partir da largura, respeitando min-height via CSS automaticamente no layout
+      const computedH = Math.round(w * 9 / 16);
+      const h = Math.max(computedH, Math.round(parseFloat(getComputedStyle(canvas).minHeight) || 320));
+      return { w, h };
     }
-    let { W, H } = setupDPI();
 
-    // Mundo
+    function setupDPI(){
+      let dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1)); // limita DPR alto em mobile para estabilidade
+      const css = getCssSize();
+      canvas.width  = Math.round(css.w * dpr);
+      canvas.height = Math.round(css.h * dpr);
+      ctx.setTransform(dpr,0,0,dpr,0,0);
+      return { W: css.w, H: css.h };
+    }
+
+    let { W, H } = setupDPI();
     let groundY = H - 40;
 
-    // Estrelas em 3 camadas
-    const starLayers = [
-      { n: 18, speed: 0.08, twinkle: 0.015, col: 'rgba(180,255,255,', arr: [] },
-      { n: 22, speed: 0.18, twinkle: 0.025, col: 'rgba(200,255,255,', arr: [] },
-      { n: 26, speed: 0.30, twinkle: 0.035, col: 'rgba(255,255,220,', arr: [] }
-    ];
-    function seedStars(){
-      for(const L of starLayers){
-        L.arr = Array.from({length: L.n}, ()=>({
-          x: Math.random()*W,
-          y: Math.random()*H*0.75,
-          r: Math.random()*1.3 + 0.35,
-          p: Math.random()*Math.PI*2
-        }));
-      }
-    }
-    seedStars();
+    // Recalcula de forma estável em mobile
+    let resizeRAF = null;
+    function onResizeStable(){
+      if (resizeRAF) cancelAnimationFrame(resizeRAF);
+      resizeRAF = requestAnimationFrame(()=>{
+        const prev = { score, record, speed };
+        ({ W, H } = setupDPI());
+        groundY = H - 40;
 
-    window.addEventListener('resize', ()=>{
-      const prev = { score, record, speed };
-      ({ W, H } = setupDPI());
-      groundY = H - 40;
-      player.y = Math.min(player.y, groundY - player.h);
-      score = prev.score; record = prev.record; speed = prev.speed;
-      seedStars();
-    });
+        // Reposiciona player dentro da tela
+        player.y = Math.min(player.y, groundY - player.h);
+        if (player.y + player.h > H) player.y = Math.max(0, groundY - player.h);
+
+        // Clampa entidades existentes para não “sumirem”
+        for (const p of platforms){ p.y = Math.max(0, Math.min(p.y, groundY - 12)); }
+        for (const o of obstacles){ o.y = Math.max(0, Math.min(o.y, groundY - o.h)); }
+        for (const h of holes){ h.y = groundY; h.h = H - groundY; }
+
+        score = prev.score; record = prev.record; speed = prev.speed;
+
+        seedStars(); // re-semeia estrelas com novo tamanho
+      });
+    }
+    window.addEventListener('resize', onResizeStable);
+    // iOS “zoom” ao mostrar barra de URL
+    window.addEventListener('orientationchange', onResizeStable);
 
     // Pontos
     const scoreEl = document.getElementById('score');
     const recordEl = document.getElementById('record');
 
-    // Áudio (somente morte/explosão)
+    // Áudio somente morte/explosão (pulo/ponto removidos)
     let audioCtx = null, useWebAudio=false;
     let sfx = { die:null, boom:null };
     const SFX_URLS = {
@@ -164,8 +177,10 @@
     }
     const primeAudio = async ()=>{ await initAudioContextOnce(); };
 
-    // UI / input
+    // Input
     const jumpBtn = document.getElementById('jumpBtn');
+    let jumpQueued=false;
+    function queueJump(){ jumpQueued=true; }
     jumpBtn.addEventListener('click', ()=>{ queueJump(); primeAudio(); });
     canvas.addEventListener('touchstart', ()=>{ queueJump(); primeAudio(); }, { passive:true });
     canvas.addEventListener('pointerdown', ()=>{ canvas.focus(); primeAudio(); }, { passive:true });
@@ -176,13 +191,13 @@
     // Player
     const player = { x:80, y:groundY-24, w:24, h:24, dy:0, gravity:0.9, jumpForce:-12, grounded:true };
 
-    // Estado geral
+    // Estado
     const obstacles=[], platforms=[], holes=[], particles=[], flashes=[];
     let frame=0, speed=4, score=0, record=parseInt(localStorage.getItem('geometryCrashRecord')||'0',10)||0;
-    let running=true, jumpQueued=false;
+    let running=true;
     recordEl.textContent = record;
 
-    // Spawn timer
+    // Spawn timer ms
     let lastSpawnTime = 0;
     let spawnIntervalMs = 1200;
     function scheduleSpawn(now){
@@ -197,12 +212,10 @@
     // AABB temp
     const AABB_a={x:0,y:0,w:0,h:0}, AABB_b={x:0,y:0,w:0,h:0};
 
-    // Fila de pulo
-    function queueJump(){ jumpQueued = true; }
     function attemptJump(){
       if(player.grounded){
         player.dy = player.jumpForce; player.grounded=false;
-        // sem som de pulo
+        // partículas no pulo
         spawnParticles(player.x+player.w/2, player.y+player.h, '#00d0ff', 8, 2.2);
       }
     }
@@ -212,13 +225,13 @@
     function spawn(){
       const r = Math.random();
       if(r < 0.48){
-        obstacles.push({ type:'block', x:W+20, y:groundY-24-(Math.random()<0.25?20:0), w:24+Math.floor(Math.random()*18), h:24+Math.floor(Math.random()*26) });
+        obstacles.push({ type:'block', x:W+20, y:Math.max(0, groundY-24-(Math.random()<0.25?20:0)), w:24+Math.floor(Math.random()*18), h:24+Math.floor(Math.random()*26) });
       } else if (r < 0.78){
         const dbl = Math.random()<0.33;
-        if(!dbl) obstacles.push({ type:'spike', x:W+10, y:groundY-20, w:22, h:20 });
-        else { obstacles.push({type:'spike',x:W+10,y:groundY-20,w:16,h:20}); obstacles.push({type:'spike',x:W+32,y:groundY-20,w:16,h:20}); }
+        if(!dbl) obstacles.push({ type:'spike', x:W+10, y:Math.max(0, groundY-20), w:22, h:20 });
+        else { obstacles.push({type:'spike',x:W+10,y:Math.max(0, groundY-20),w:16,h:20}); obstacles.push({type:'spike',x:W+32,y:Math.max(0, groundY-20),w:16,h:20}); }
       } else if (r < 0.9){
-        const py = groundY - 80 - Math.floor(Math.random()*80);
+        const py = Math.max(0, groundY - 80 - Math.floor(Math.random()*80));
         platforms.push({ x:W+10, y:py, w:80+Math.floor(Math.random()*70), h:12 });
       } else {
         const minW=36, maxW=72;
@@ -230,7 +243,7 @@
       }
     }
 
-    // Partículas / explosão
+    // Partículas
     function spawnParticles(x,y,color,count=12,speed=3,spread=Math.PI*2){
       for(let i=0;i<count;i++){
         const ang = Math.random()*spread, spd = speed*(0.5+Math.random());
@@ -268,7 +281,24 @@
       }
     }
 
-    // Céu bonito: gradiente, aurora e estrelas em camadas
+    // Céu (gradiente, aurora e estrelas em camadas)
+    const starLayers = [
+      { n: 18, speed: 0.08, twinkle: 0.015, col: 'rgba(180,255,255,', arr: [] },
+      { n: 22, speed: 0.18, twinkle: 0.025, col: 'rgba(200,255,255,', arr: [] },
+      { n: 26, speed: 0.30, twinkle: 0.035, col: 'rgba(255,255,220,', arr: [] }
+    ];
+    function seedStars(){
+      for(const L of starLayers){
+        L.arr = Array.from({length: L.n}, ()=>({
+          x: Math.random()*W,
+          y: Math.random()*H*0.75,
+          r: Math.random()*1.3 + 0.35,
+          p: Math.random()*Math.PI*2
+        }));
+      }
+    }
+    seedStars();
+
     function drawBackground(){
       const sky = ctx.createLinearGradient(0,0,0,H);
       sky.addColorStop(0.0,'#02101a');
@@ -330,7 +360,7 @@
       ctx.globalAlpha=1;
     }
 
-    // Plataformas destacadas
+    // Buracos destacados
     function drawHoles(){
       const pitJitter = Math.sin(frame*0.03)*0.6;
       for (const h of holes) {
@@ -370,14 +400,29 @@
       ctx.clearRect(0,0,W,H);
       drawBackground();
 
-      for(let i=platforms.length-1;i>=0;i--){ const p=platforms[i]; p.x-=speed; if(p.x+p.w<-50) platforms.splice(i,1); }
-      for(let i=obstacles.length-1;i>=0;i--){ const o=obstacles[i]; o.x-=speed; if(o.x+o.w<-40){ obstacles.splice(i,1); score++; scoreElUpdate(); } }
-      for(let i=holes.length-1;i>=0;i--){ const h=holes[i]; h.x-=speed; if(h.x+h.w<-60) holes.splice(i,1); }
+      // mover entidades
+      for(let i=platforms.length-1;i>=0;i--){
+        const p=platforms[i]; p.x-=speed;
+        if(p.x+p.w<-50) platforms.splice(i,1);
+      }
+      for(let i=obstacles.length-1;i>=0;i--){
+        const o=obstacles[i]; o.x-=speed;
+        if(o.x+o.w<-40){ obstacles.splice(i,1); score++; scoreElUpdate(); }
+      }
+      for(let i=holes.length-1;i>=0;i--){
+        const h=holes[i]; h.x-=speed; h.y=groundY; h.h=H-groundY; // mantém aderente ao chão
+        if(h.x+h.w<-60) holes.splice(i,1);
+      }
 
       drawHoles();
 
+      // física
       player.dy += player.gravity; player.y += player.dy;
 
+      // Guarda para nunca sair do topo
+      if(player.y < -10){ player.y = -10; player.dy = Math.max(0, player.dy); }
+
+      // suporte de chão vs buraco
       let overHole=false;
       for(const h of holes){ if(player.x+player.w>h.x && player.x<h.x+h.w){ overHole=true; break; } }
       if(!overHole && player.y + player.h >= groundY){
@@ -386,6 +431,7 @@
         player.grounded = false;
       }
 
+      // plataformas com colisão total
       for(const p of platforms){
         const grad=ctx.createLinearGradient(p.x,p.y,p.x+p.w,p.y); grad.addColorStop(0,'#2a2a8f'); grad.addColorStop(1,'#00d0ff');
         ctx.fillStyle=grad; ctx.fillRect(p.x,p.y,p.w,p.h);
@@ -403,14 +449,17 @@
         }
       }
 
+      // morte por queda (fora da tela inferior)
       if(player.y > H + 40){ spawnExplosion(player.x+player.w/2, H-10); playSfx('die', 0.9, 1.0); gameOver(); return; }
 
+      // obstáculos + colisão
       for(const o of obstacles){
         if(o.type==='block'){
           ctx.save(); const cx=o.x+o.w/2, cy=o.y+o.h/2; const angle=Math.sin((frame+7)/24)*0.09;
           ctx.translate(cx,cy); ctx.rotate(angle); neonRect(-o.w/2,-o.h/2,o.w,o.h); ctx.restore();
         } else {
-          ctx.save(); spikePath(o);
+          ctx.save(); ctx.beginPath();
+          ctx.moveTo(o.x,o.y+o.h); ctx.lineTo(o.x+o.w/2,o.y); ctx.lineTo(o.x+o.w,o.y+o.h); ctx.closePath();
           const g=ctx.createLinearGradient(o.x,o.y,o.x,o.y+o.h); g.addColorStop(0,'#ffc36b'); g.addColorStop(1,'#ff8a3a');
           ctx.fillStyle=g; ctx.fill(); ctx.restore();
         }
@@ -419,6 +468,9 @@
         }
       }
 
+      // player (clamp horizontal para não “sumir” em resize extremo)
+      player.x = Math.max(0, Math.min(player.x, W - player.w - 1));
+
       const rot = Math.max(-0.6, Math.min(0.6, player.dy * 0.03));
       ctx.save();
       ctx.translate(player.x + player.w/2, player.y + player.h/2);
@@ -426,7 +478,7 @@
       const rg=ctx.createRadialGradient(0,0,6,0,0,16); rg.addColorStop(0,'rgba(0,240,209,.18)'); rg.addColorStop(1,'rgba(0,240,209,0)');
       ctx.fillStyle=rg; ctx.beginPath(); ctx.arc(0,0,16,0,Math.PI*2); ctx.fill();
       const tri=ctx.createLinearGradient(-player.w/2,0,player.w/2,0); tri.addColorStop(0,'#00f0d1'); tri.addColorStop(1,'#00d0ff');
-      ctx.fillStyle=tri; ctx.beginPath(); ctx.moveTo(-player.w/2, player.h/2); ctx.lineTo(0, -player.h/2); ctx.lineTo(player.w/2, player.h/2); ctx.closePath(); ctx.fill();
+      ctx.fillStyle=tri; ctx.beginPath(); ctx.moveTo(-player.w/2,player.h/2); ctx.lineTo(0,-player.h/2); ctx.lineTo(player.w/2,player.h/2); ctx.closePath(); ctx.fill();
       ctx.strokeStyle='rgba(255,255,255,.25)'; ctx.lineWidth=1; ctx.stroke();
       ctx.restore();
 
@@ -458,14 +510,14 @@
     function resetGame(){
       obstacles.length=0; platforms.length=0; holes.length=0; particles.length=0; flashes.length=0;
       frame=0; score=0; speed=4;
-      player.y=groundY-player.h; player.dy=0; player.grounded=true;
+      player.x=80; player.y=groundY-player.h; player.dy=0; player.grounded=true;
       scoreElUpdate();
       lastSpawnTime = performance.now() - spawnIntervalMs;
     }
 
     function init(){
       running=true; score=0; scoreElUpdate();
-      spawn();
+      spawn(); // primeiro spawn garantido
       lastSpawnTime = performance.now();
       requestAnimationFrame(update);
     }
