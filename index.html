@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Geometry Crash</title>
+  <link rel="icon" href="favicon.ico" />
   <style>
     :root{
       --bg1:#081421;
@@ -50,8 +51,8 @@
       width:100%;
       max-width:640px;
       height:360px;
-      border-radius:12px; /* IMPROVEMENT: radius um pouco maior */
-      border:2px solid rgba(0,240,209,0.10); /* IMPROVEMENT: mais visível */
+      border-radius:12px;
+      border:2px solid rgba(0,240,209,0.10);
       box-shadow:
         0 12px 48px rgba(0,0,0,0.7),
         0 0 24px rgba(0,240,209,0.10),
@@ -70,7 +71,7 @@
       position:relative;
       background: var(--glass);
       -webkit-backdrop-filter: blur(6px);
-      backdrop-filter: blur(6px); /* IMPROVEMENT: glassmorphism */
+      backdrop-filter: blur(6px);
       padding:8px 12px;
       border-radius:10px;
       font-weight:700;
@@ -108,10 +109,10 @@
   </style>
 </head>
 <body>
-  <div class="container" role="application" aria-label="Jogo Geometry Crash"> <!-- IMPROVEMENT: a11y role -->
+  <div class="container" role="application" aria-label="Jogo Geometry Crash">
     <h1>Geometry Crash — Jogue enquanto espera</h1>
     <div class="game-card">
-      <canvas id="game" width="640" height="360" role="img" aria-label="Jogo Geometry Crash" tabindex="0"></canvas> <!-- IMPROVEMENT: tabindex para foco/Space -->
+      <canvas id="game" width="640" height="360" role="img" aria-label="Jogo Geometry Crash" tabindex="0"></canvas>
 
       <div id="hud">
         <div class="scoreBox">Pontuação: <span id="score">0</span></div>
@@ -123,14 +124,15 @@
     </div>
   </div>
 
-  <!-- Sons (fontes públicas do Google Actions) -->
+  <!-- Sons -->
+  <!-- Troque para assets locais se desejar: assets/sounds/wood_plank_flicks.ogg etc. -->
   <audio id="sndJump" src="https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg" preload="auto"></audio>
   <audio id="sndPoint" src="https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg" preload="auto"></audio>
   <audio id="sndDie" src="https://actions.google.com/sounds/v1/cartoon/concussive_hit_guitar_boing.ogg" preload="auto"></audio>
 
   <script>
   (function(){
-    // Canvas & DPI scaling (IMPROVEMENT: high-DPI crispness)
+    // Canvas & DPI scaling
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d');
 
@@ -140,7 +142,6 @@
       canvas.width = Math.round(rect.width * dpr);
       canvas.height = Math.round(rect.height * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      // Logical rendering size used by game world:
       return { W: rect.width, H: rect.height, dpr };
     }
 
@@ -150,7 +151,6 @@
       const prevRecord = record;
       ({ W, H } = setupDPI());
       groundY = H - 40;
-      // Reposiciona player no chão
       player.y = groundY - player.h;
       score = prevScore;
       record = prevRecord;
@@ -164,7 +164,7 @@
     const sndPoint = document.getElementById('sndPoint');
     const sndDie = document.getElementById('sndDie');
 
-    // Player (triângulo)
+    // Player
     let player = {
       x: 80, y: groundY - 24, w: 24, h: 24,
       dy: 0, gravity: 0.9, jumpForce: -12, grounded: true,
@@ -174,13 +174,13 @@
     // Game state
     let obstacles = [];
     let platforms = [];
-    let particles = []; // IMPROVEMENT: partículas leves
+    let particles = [];
     let frame = 0;
-    let speed = 4; // base
+    let speed = 4;
     let score = 0;
     let record = parseInt(localStorage.getItem('geometryCrashRecord')||'0',10) || 0;
     recordEl.textContent = record;
-    let running = true; // controla loop para evitar init duplo
+    let running = true;
 
     // Input
     function attemptJump(){
@@ -189,7 +189,6 @@
         player.grounded = false;
         sndJump.currentTime = 0;
         sndJump.play().catch(()=>{});
-        // pequenas partículas no pulo
         spawnParticles(player.x+player.w/2, player.y+player.h, '#00d0ff', 6, 2);
       }
     }
@@ -201,12 +200,13 @@
     });
     jumpBtn.addEventListener('click', attemptJump);
     canvas.addEventListener('touchstart', (e)=>{ e.preventDefault(); attemptJump(); }, {passive:false});
+    canvas.addEventListener('pointerdown', ()=>canvas.focus());
+    canvas.addEventListener('keydown', (e)=>{ if(e.code==='Space'){ e.preventDefault(); attemptJump(); } });
 
-    // Spawn obstacles and platforms
+    // Spawn logic
     function spawn(){
       const r = Math.random();
       if (r < 0.5) {
-        // bloco neon com borda
         obstacles.push({
           type:'block',
           x: W + 20,
@@ -216,7 +216,6 @@
           color: '#22ffd6'
         });
       } else if (r < 0.8) {
-        // spike (simples ou duplo)
         const isDouble = Math.random() < 0.33;
         if(!isDouble){
           obstacles.push({
@@ -230,7 +229,6 @@
           obstacles.push({ type:'spike', x: W + 10 + 22, y: groundY - 20, w: 16, h: 20 });
         }
       } else {
-        // plataforma elevada com gradiente
         const py = groundY - 80 - Math.floor(Math.random()*80);
         platforms.push({
           x: W + 10,
@@ -241,15 +239,7 @@
       }
     }
 
-    // Collision AABB helper
-    function collide(a,b){
-      return a.x < b.x + b.w &&
-             a.x + a.w > b.x &&
-             a.y < b.y + b.h &&
-             a.y + a.h > b.y;
-    }
-
-    // Partículas simples (IMPROVEMENT)
+    // Partículas
     function spawnParticles(x, y, color, count=6, speed=2){
       for(let i=0;i<count;i++){
         particles.push({
@@ -279,7 +269,7 @@
       }
     }
 
-    // Background helpers (IMPROVEMENT: gradiente + estrelas leves)
+    // Background
     const stars = Array.from({length:32}, ()=>({
       x: Math.random()*W, y: Math.random()*H*0.8, r: Math.random()*1.2+0.3, tw: Math.random()*Math.PI*2
     }));
@@ -291,7 +281,6 @@
       ctx.fillStyle = g;
       ctx.fillRect(0,0,W,H);
 
-      // stars parallax
       ctx.save();
       for(let i=0;i<stars.length;i++){
         const s = stars[i];
@@ -301,17 +290,14 @@
         ctx.beginPath();
         ctx.arc(s.x, y, s.r, 0, Math.PI*2);
         ctx.fill();
-        s.x -= 0.2; // lento
+        s.x -= 0.2;
         if(s.x < -2){ s.x = W+2; s.y = Math.random()*H*0.8; }
       }
       ctx.restore();
 
-      // ground
       ctx.save();
-      // faixa do chão
       ctx.fillStyle = '#0b1114';
       ctx.fillRect(0, groundY, W, H-groundY);
-      // striping sutil
       ctx.globalAlpha = 0.08;
       ctx.fillStyle = '#00f0d1';
       for(let x=0; x<W; x+=24) ctx.fillRect(x, groundY, 12, 6);
@@ -319,12 +305,10 @@
       ctx.restore();
     }
 
-    // Neon stroke helper (IMPROVEMENT)
-    function neonRect(x,y,w,h, base='#18ffd8'){
-      // fill
+    // Helpers
+    function neonRect(x,y,w,h){
       ctx.fillStyle = 'rgba(24,255,216,0.12)';
       ctx.fillRect(x,y,w,h);
-      // edge glow via gradient stroke
       const grd = ctx.createLinearGradient(x,y,x+w,y+h);
       grd.addColorStop(0, '#00f0d1');
       grd.addColorStop(1, '#00d0ff');
@@ -332,7 +316,6 @@
       ctx.lineWidth = 2;
       ctx.strokeRect(x+0.5,y+0.5,w-1,h-1);
     }
-
     function spikePath(o){
       ctx.beginPath();
       ctx.moveTo(o.x, o.y + o.h);
@@ -341,15 +324,14 @@
       ctx.closePath();
     }
 
-    // Desenho principal
+    // Loop principal
     function update(){
       if(!running) return;
       frame++;
-      // background
       ctx.clearRect(0,0,W,H);
       drawBackground();
 
-      // player physics
+      // Física do player
       player.dy += player.gravity;
       player.y += player.dy;
       if(player.y + player.h >= groundY){
@@ -360,40 +342,56 @@
         player.grounded = false;
       }
 
-      // plataformas
+      // Plataformas com colisão completa
       for(let i=platforms.length-1;i>=0;i--){
         const p = platforms[i];
         p.x -= speed;
 
-        // plataforma com gradiente
         const grad = ctx.createLinearGradient(p.x,p.y,p.x+p.w,p.y);
         grad.addColorStop(0,'#2a2a8f');
         grad.addColorStop(1,'#00d0ff');
         ctx.fillStyle = grad;
         ctx.fillRect(p.x,p.y,p.w,p.h);
 
-        // top-only collision
-        if (
-          player.dy >= 0 &&
-          player.x + player.w > p.x + 6 &&
-          player.x < p.x + p.w - 6 &&
-          player.y + player.h <= p.y + 4 &&
-          player.y + player.h + player.dy >= p.y
-        ) {
-          player.y = p.y - player.h;
-          player.dy = 0;
-          player.grounded = true;
+        // AABB overlap
+        const a = { x: player.x, y: player.y, w: player.w, h: player.h };
+        const b = { x: p.x, y: p.y, w: p.w, h: p.h };
+
+        const overlapX = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+        const overlapY = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+
+        if (overlapX > 0.5 && overlapY > 0.5) {
+          if (overlapX < overlapY) {
+            // resolver lateral
+            if (a.x + a.w / 2 < b.x + b.w / 2) {
+              player.x -= overlapX;
+            } else {
+              player.x += overlapX;
+            }
+          } else {
+            // resolver vertical
+            if (a.y + a.h / 2 < b.y + b.h / 2) {
+              // em cima
+              player.y -= overlapY;
+              player.dy = 0;
+              player.grounded = true;
+            } else {
+              // por baixo
+              player.y += overlapY;
+              if (player.dy < 0) player.dy = 0;
+            }
+          }
         }
+
         if(p.x + p.w < -50) platforms.splice(i,1);
       }
 
-      // obstáculos
+      // Obstáculos
       for(let i=obstacles.length-1;i>=0;i--){
         const o = obstacles[i];
         o.x -= speed;
 
         if(o.type === 'block'){
-          // bloco com leve rotação e neon “edge”
           ctx.save();
           const cx = o.x + o.w/2, cy = o.y + o.h/2;
           const angle = Math.sin((frame + i*7)/24) * 0.09;
@@ -402,7 +400,6 @@
           neonRect(-o.w/2,-o.h/2,o.w,o.h);
           ctx.restore();
         } else if(o.type === 'spike'){
-          // spike com brilho quente
           ctx.save();
           spikePath(o);
           const grad = ctx.createLinearGradient(o.x,o.y, o.x, o.y+o.h);
@@ -413,7 +410,7 @@
           ctx.restore();
         }
 
-        // colisão
+        // colisão com obstáculos
         if (
           player.x < o.x + o.w &&
           player.x + player.w > o.x &&
@@ -432,25 +429,21 @@
           scoreElUpdate();
           sndPoint.currentTime = 0;
           sndPoint.play().catch(()=>{});
-          // partículas de ponto
           spawnParticles(player.x+player.w/2, player.y+player.h/2, '#00f0d1', 5, 1.6);
         }
       }
 
-      // player (triângulo) com “outer glow” moderado
+      // Player visual
       const rot = Math.max(-0.6, Math.min(0.6, player.dy * 0.03));
       ctx.save();
       ctx.translate(player.x + player.w/2, player.y + player.h/2);
       ctx.rotate(rot);
-      // glow radial leve ao redor do player (sem shadowBlur pesado)
       const rg = ctx.createRadialGradient(0,0,6, 0,0,16);
       rg.addColorStop(0,'rgba(0,240,209,0.18)');
       rg.addColorStop(1,'rgba(0,240,209,0)');
       ctx.fillStyle = rg;
       ctx.beginPath();
       ctx.arc(0,0,16,0,Math.PI*2); ctx.fill();
-
-      // triângulo
       const triGrad = ctx.createLinearGradient(-player.w/2,0,player.w/2,0);
       triGrad.addColorStop(0, '#00f0d1');
       triGrad.addColorStop(1, '#00d0ff');
@@ -461,28 +454,26 @@
       ctx.lineTo(player.w/2, player.h/2);
       ctx.closePath();
       ctx.fill();
-
-      // contorno
       ctx.strokeStyle = 'rgba(255,255,255,0.25)';
       ctx.lineWidth = 1;
       ctx.stroke();
       ctx.restore();
 
-      // partículas
+      // Partículas
       updateParticles();
       drawParticles();
 
-      // speed ramp
+      // Velocidade
       if(score > 30) speed = 10;
       else if(score > 15) speed = 5.5;
       else speed = 4 + Math.floor(score/10)*0.5;
 
-      // spawn logic
+      // Spawn
       if(frame % Math.max(40, 90 - Math.floor(score/2)) === 0){
         spawn();
       }
 
-      // UI overlay pequena
+      // HUD overlay
       ctx.fillStyle = 'rgba(0,0,0,0.12)';
       ctx.fillRect(8,8,220,36);
       ctx.fillStyle = '#00f0d1';
@@ -527,10 +518,6 @@
       obstacles = [];
       requestAnimationFrame(update);
     }
-
-    // Acessibilidade: foco no canvas ao carregar (útil em iframe)
-    canvas.addEventListener('pointerdown', ()=>canvas.focus());
-    canvas.addEventListener('keydown', (e)=>{ if(e.code==='Space'){ e.preventDefault(); attemptJump(); } });
 
     init();
 
