@@ -99,17 +99,17 @@
 
     // Web Audio (baixa latência) + fallback
     let audioCtx = null;
-    let sfx = { jump:null, point:null, die:null, boom:null };
+    let sfx = { /* jump:null, point:null, */ die:null, boom:null }; // REMOVIDOS jump/point
     let useWebAudio = false;
     const SFX_URLS = {
-      jump:'https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg',
-      point:'https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg',
+      // jump:'https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg',
+      // point:'https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg',
       die:'https://actions.google.com/sounds/v1/cartoon/concussive_hit_guitar_boing.ogg',
       boom:'https://actions.google.com/sounds/v1/impacts/crash.ogg'
     };
     const htmlSfx = {
-      jump: new Audio(SFX_URLS.jump),
-      point:new Audio(SFX_URLS.point),
+      // jump: new Audio(SFX_URLS.jump),
+      // point:new Audio(SFX_URLS.point),
       die:  new Audio(SFX_URLS.die),
       boom: new Audio(SFX_URLS.boom)
     };
@@ -173,7 +173,7 @@
     function attemptJump(){
       if(player.grounded){
         player.dy = player.jumpForce; player.grounded=false;
-        playSfx('jump', 0.9, 1.0);
+        // REMOVIDO: som de pulo
         spawnParticles(player.x+player.w/2, player.y+player.h, '#00d0ff', 8, 2.2);
       }
     }
@@ -309,7 +309,7 @@
 
       // mover entidades
       for(let i=platforms.length-1;i>=0;i--){ const p=platforms[i]; p.x-=speed; if(p.x+p.w<-50) platforms.splice(i,1); }
-      for(let i=obstacles.length-1;i>=0;i--){ const o=obstacles[i]; o.x-=speed; if(o.x+o.w<-40){ obstacles.splice(i,1); score++; scoreElUpdate(); playSfx('point', 0.8, 1.0); } }
+      for(let i=obstacles.length-1;i>=0;i--){ const o=obstacles[i]; o.x-=speed; if(o.x+o.w<-40){ obstacles.splice(i,1); score++; scoreElUpdate(); /* REMOVIDO som de ponto */ } }
       for(let i=holes.length-1;i>=0;i--){ const h=holes[i]; h.x-=speed; if(h.x+h.w<-60) holes.splice(i,1); }
 
       drawHoles();
