@@ -63,7 +63,7 @@
 </head>
 <body>
   <div class="container" role="application" aria-label="Jogo Geometry Crash">
-    <h1>Geometry Crash — Jogue enquanto espera</h1>
+    <h1>Geometry Crash — Jogue Enquanto Aguarda</h1>
     <div class="game-card">
       <canvas id="game" width="640" height="360" role="img" aria-label="Jogo Geometry Crash" tabindex="0"></canvas>
 
@@ -101,9 +101,7 @@
     let audioCtx = null;
     let sfx = { jump:null, point:null, die:null, boom:null };
     let useWebAudio = false;
-    const SFX_URLS = {
-      jump:'https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg',
-      point:'https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg',
+    const SFX_URLS = 
       die:'https://actions.google.com/sounds/v1/cartoon/concussive_hit_guitar_boing.ogg',
       boom:'https://actions.google.com/sounds/v1/impacts/crash.ogg'
     };
@@ -403,3 +401,4 @@
   </script>
 </body>
 </html>
+
