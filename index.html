@@ -37,6 +37,7 @@
       border-radius:12px; border:2px solid rgba(0,240,209,.10);
       box-shadow:0 12px 48px rgba(0,0,0,.7), 0 0 24px rgba(0,240,209,.10), inset 0 0 0 1px rgba(255,255,255,.02);
       outline:none; touch-action:none;
+      display:block;
     }
     #hud{ margin-top:10px; display:flex; gap:12px; align-items:center; justify-content:center; flex-wrap:wrap; }
     .scoreBox{ background:rgba(255,255,255,.06); backdrop-filter:blur(6px); padding:8px 12px; border-radius:10px; font-weight:700; color:var(--accent); border:1px solid rgba(255,255,255,.08); }
@@ -85,17 +86,23 @@
   (function(){
     // Canvas & DPI
     const canvas = document.getElementById('game');
-    const ctx = canvas.getContext('2d', { alpha:true, desynchronized:true });
+    // Removido desynchronized:true para evitar canvas que não renderiza em alguns navegadores
+    const ctx = canvas.getContext('2d', { alpha:true });
     function setupDPI(){
-      const dpr = window.devicePixelRatio || 1;
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
       const r = canvas.getBoundingClientRect();
-      canvas.width = Math.round(r.width * dpr);
-      canvas.height = Math.round(r.height * dpr);
+      // Garante dimensões físicas reais
+      canvas.width = Math.max(1, Math.round(r.width * dpr));
+      canvas.height = Math.max(1, Math.round(r.height * dpr));
       ctx.setTransform(dpr,0,0,dpr,0,0);
-      return {W:r.width,H:r.height};
+      return { W: r.width, H: r.height };
     }
     let { W, H } = setupDPI();
-    window.addEventListener('resize', ()=>{ ({W,H}=setupDPI()); groundY = H - 40; player.y = Math.min(player.y, groundY - player.h); });
+    window.addEventListener('resize', ()=>{
+      ({W,H}=setupDPI());
+      groundY = H - 40;
+      player.y = Math.min(player.y, groundY - player.h);
+    });
 
     // HUD
     const jumpBtn = document.getElementById('jumpBtn');
@@ -114,7 +121,7 @@
 
     // Web Audio (morte/explosão) + fallback para HTMLAudio
     let audioCtx = null, useWebAudio=false;
-    let sfx = { die:null, boom:null }; // apenas críticos
+    let sfx = { die:null, boom:null };
     const SFX_URLS = {
       die:'https://actions.google.com/sounds/v1/cartoon/concussive_hit_guitar_boing.ogg',
       boom:'https://actions.google.com/sounds/v1/impacts/crash.ogg'
@@ -220,7 +227,7 @@
       ctx.globalAlpha=.08; ctx.fillStyle='#00f0d1'; for(let x=0;x<W;x+=24) ctx.fillRect(x,groundY,12,6); ctx.globalAlpha=1;
     }
 
-    // Buracos (menores + destacados)
+    // Buracos
     let lastHoleEndX=-9999;
     function drawHoles(){
       const pitJitter = Math.sin(frame*0.03)*0.6;
@@ -261,26 +268,32 @@
     }
 
     // Física e colisões
-    function attemptJumpExec(){ if(player.grounded){ player.dy=player.jumpForce; player.grounded=false; /* sem som de pulo */ spawnParticles(player.x+player.w/2, player.y+player.h, '#00d0ff', 8, 2.2); } }
+    function attemptJumpExec(){ if(player.grounded){ player.dy=player.jumpForce; player.grounded=false; spawnParticles(player.x+player.w/2, player.y+player.h, '#00d0ff', 8, 2.2); } }
 
     function update(){
       if(!running) return;
+
       if(jumpQueued){ jumpQueued=false; attemptJumpExec(); }
 
-      frame++; ctx.clearRect(0,0,W,H); drawBackground();
+      frame++;
+      ctx.clearRect(0,0,W,H);
+      drawBackground();
 
+      // mover entidades
       for(let i=platforms.length-1;i>=0;i--){ const p=platforms[i]; p.x-=speed; if(p.x+p.w<-50) platforms.splice(i,1); }
-      for(let i=obstacles.length-1;i>=0;i--){ const o=obstacles[i]; o.x-=speed; if(o.x+o.w<-40){ obstacles.splice(i,1); score++; scoreElUpdate(); if(!silentAction){ /* som de ponto desativável */ } } }
+      for(let i=obstacles.length-1;i>=0;i--){ const o=obstacles[i]; o.x-=speed; if(o.x+o.w<-40){ obstacles.splice(i,1); score++; scoreElUpdate(); } }
       for(let i=holes.length-1;i>=0;i--){ const h=holes[i]; h.x-=speed; if(h.x+h.w<-60) holes.splice(i,1); }
 
       drawHoles();
 
+      // gravidade e chão/buracos
       player.dy += player.gravity; player.y += player.dy;
 
       let overHole=false; for(const h of holes){ if(player.x+player.w>h.x && player.x<h.x+h.w){ overHole=true; break; } }
       if(!overHole && player.y + player.h >= groundY){ player.y=groundY-player.h; player.dy=0; player.grounded=true; }
       else if(overHole && player.y + player.h >= groundY){ player.grounded=false; }
 
+      // plataformas
       for(const p of platforms){
         const grad=ctx.createLinearGradient(p.x,p.y,p.x+p.w,p.y); grad.addColorStop(0,'#2a2a8f'); grad.addColorStop(1,'#00d0ff');
         ctx.fillStyle=grad; ctx.fillRect(p.x,p.y,p.w,p.h);
@@ -294,8 +307,10 @@
         }
       }
 
+      // morte por queda
       if(player.y > H + 40){ spawnExplosion(player.x+player.w/2, H-10); playSfx('die', 0.9, 1.0); gameOver(); return; }
 
+      // obstáculos
       for(const o of obstacles){
         if(o.type==='block'){
           ctx.save(); const cx=o.x+o.w/2, cy=o.y+o.h/2, angle=Math.sin((frame+7)/24)*0.09;
@@ -310,6 +325,7 @@
         }
       }
 
+      // Player visual
       const rot=Math.max(-0.6, Math.min(0.6, player.dy*0.03));
       ctx.save();
       ctx.translate(player.x+player.w/2, player.y+player.h/2);
@@ -323,20 +339,47 @@
 
       updateParticles(); drawParticles();
 
+      // Dificuldade
       if(score>30) speed=10; else if(score>15) speed=5.5; else speed=4+Math.floor(score/10)*0.5;
+
+      // Spawn rítmico
       if(frame % Math.max(44, 96 - Math.floor(score/2)) === 0) spawn();
 
+      // HUD
       ctx.fillStyle='rgba(0,0,0,.12)'; ctx.fillRect(8,8,260,36);
       ctx.fillStyle='#00f0d1'; ctx.font='16px Inter, Arial'; ctx.fillText('Pontuação: '+score,18,32);
 
       requestAnimationFrame(update);
     }
 
-    function scoreElUpdate(){ scoreEl.textContent=String(score); if(score>record){ record=score; localStorage.setItem('geometryCrashRecord', String(record)); recordEl.textContent=String(record); } }
-    function gameOver(){ running=false; setTimeout(()=>{ const again=confirm('💥 Fim de jogo! Seu recorde é: '+record+'\n\nDeseja jogar novamente?'); if(again){ resetGame(); init(); } }, 160); }
-    function resetGame(){ obstacles.length=0; platforms.length=0; holes.length=0; particles.length=0; flashes.length=0; frame=0; score=0; speed=4; player.y=groundY-player.h; player.dy=0; player.grounded=true; scoreElUpdate(); }
-    function init(){ running=true; score=0; scoreElUpdate(); requestAnimationFrame(update); }
+    function scoreElUpdate(){
+      scoreEl.textContent=String(score);
+      if(score>record){
+        record=score;
+        localStorage.setItem('geometryCrashRecord', String(record));
+        recordEl.textContent=String(record);
+      }
+    }
+    function gameOver(){
+      running=false;
+      setTimeout(()=>{
+        const again=confirm('💥 Fim de jogo! Seu recorde é: '+record+'\n\nDeseja jogar novamente?');
+        if(again){ resetGame(); init(); }
+      }, 160);
+    }
+    function resetGame(){
+      obstacles.length=0; platforms.length=0; holes.length=0; particles.length=0; flashes.length=0;
+      frame=0; score=0; speed=4; player.y=groundY-player.h; player.dy=0; player.grounded=true; scoreElUpdate();
+    }
+    function init(){
+      // Garante que o canvas está dimensionado antes do primeiro frame
+      ({W,H}=setupDPI());
+      groundY = H - 40;
+      running=true; score=0; scoreElUpdate();
+      requestAnimationFrame(update);
+    }
 
+    // Início
     init();
   })();
   </script>
